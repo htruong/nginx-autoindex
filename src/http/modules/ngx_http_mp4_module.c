@@ -586,6 +586,10 @@ ngx_http_mp4_handler(ngx_http_request_t *r)
     r->headers_out.status = NGX_HTTP_OK;
     r->headers_out.last_modified_time = of.mtime;
 
+    if (ngx_http_set_etag(r) != NGX_OK) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
     if (ngx_http_set_content_type(r) != NGX_OK) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -749,6 +753,13 @@ ngx_http_mp4_process(ngx_http_mp4_file_t *mp4)
     mp4->content_length += mp4->moov_size;
 
     *prev = &mp4->mdat_atom;
+
+    if (start_offset > mp4->mdat_data.buf->file_last) {
+        ngx_log_error(NGX_LOG_ERR, mp4->file.log, 0,
+                      "start time is out mp4 mdat atom in \"%s\"",
+                      mp4->file.name.data);
+        return NGX_ERROR;
+    }
 
     adjustment = mp4->ftyp_size + mp4->moov_size
                  + ngx_http_mp4_update_mdat_atom(mp4, start_offset)
@@ -1024,6 +1035,10 @@ ngx_http_mp4_read_moov_atom(ngx_http_mp4_file_t *mp4, uint64_t atom_data_size)
                          + NGX_HTTP_MP4_MOOV_BUFFER_EXCESS * no_mdat;
     }
 
+    if (ngx_http_mp4_read(mp4, (size_t) atom_data_size) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     mp4->trak.elts = &mp4->traks;
     mp4->trak.size = sizeof(ngx_http_mp4_trak_t);
     mp4->trak.nalloc = 2;
@@ -1043,6 +1058,12 @@ ngx_http_mp4_read_moov_atom(ngx_http_mp4_file_t *mp4, uint64_t atom_data_size)
     if (no_mdat) {
         mp4->buffer_start = mp4->buffer_pos;
         mp4->buffer_size = NGX_HTTP_MP4_MOOV_BUFFER_EXCESS;
+
+        if (mp4->buffer_start + mp4->buffer_size > mp4->buffer_end) {
+            mp4->buffer = NULL;
+            mp4->buffer_pos = NULL;
+            mp4->buffer_end = NULL;
+        }
 
     } else {
         /* skip atoms after moov atom */
@@ -1828,14 +1849,6 @@ ngx_http_mp4_read_stsd_atom(ngx_http_mp4_file_t *mp4, uint64_t atom_data_size)
                    ngx_mp4_get_32value(stsd_atom->entries),
                    4, stsd_atom->media_name);
 
-    /* supported media format: "avc1" (H.264) and "mp4a" (MPEG-4/AAC) */
-
-    if (ngx_strncmp(stsd_atom->media_name, "avc1", 4) != 0
-        && ngx_strncmp(stsd_atom->media_name, "mp4a", 4) != 0)
-    {
-        return NGX_DECLINED;
-    }
-
     trak = ngx_mp4_last_trak(mp4);
 
     atom = &trak->stsd_atom_buf;
@@ -2488,7 +2501,13 @@ found:
 
     ngx_mp4_set_32value(entry->chunk, 1);
 
-    if (trak->chunk_samples) {
+    if (trak->chunk_samples && next_chunk - trak->start_chunk == 2) {
+
+        /* last chunk in the entry */
+
+        ngx_mp4_set_32value(entry->samples, samples - trak->chunk_samples);
+
+    } else if (trak->chunk_samples) {
 
         first = &trak->stsc_chunk_entry;
         ngx_mp4_set_32value(first->chunk, 1);
@@ -2504,6 +2523,7 @@ found:
 
         ngx_mp4_set_32value(entry->chunk, 2);
 
+        entries++;
         atom_size += sizeof(ngx_mp4_stsc_entry_t);
     }
 

@@ -2,6 +2,7 @@
 /*
  * Copyright (C) Igor Sysoev
  * modified by Zed A. Shaw.
+ * further modified by Huan Truong
  * Copyright (C) Nginx, Inc.
  */
 

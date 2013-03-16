@@ -336,10 +336,10 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
 #if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
 
-            if (ls[i].sockaddr->sa_family == AF_INET6 && ls[i].ipv6only) {
+            if (ls[i].sockaddr->sa_family == AF_INET6) {
                 int  ipv6only;
 
-                ipv6only = (ls[i].ipv6only == 1);
+                ipv6only = ls[i].ipv6only;
 
                 if (setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY,
                                (const void *) &ipv6only, sizeof(int))
@@ -749,6 +749,8 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
 
         ls[i].fd = (ngx_socket_t) -1;
     }
+
+    cycle->listening.nelts = 0;
 }
 
 

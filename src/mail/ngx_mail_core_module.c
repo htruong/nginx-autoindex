@@ -340,6 +340,14 @@ ngx_mail_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             break;
 #endif
 
+#if (NGX_HAVE_UNIX_DOMAIN)
+        case AF_UNIX:
+            off = offsetof(struct sockaddr_un, sun_path);
+            len = sizeof(((struct sockaddr_un *) sa)->sun_path);
+            port = 0;
+            break;
+#endif
+
         default: /* AF_INET */
             off = offsetof(struct sockaddr_in, sin_addr);
             len = 4;
@@ -374,21 +382,27 @@ ngx_mail_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ls->wildcard = u.wildcard;
     ls->ctx = cf->ctx;
 
-    for (m = 0; ngx_modules[m]; m++) {
-        if (ngx_modules[m]->type != NGX_MAIL_MODULE) {
-            continue;
-        }
+#if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+    ls->ipv6only = 1;
+#endif
 
-        module = ngx_modules[m]->ctx;
+    if (cscf->protocol == NULL) {
+        for (m = 0; ngx_modules[m]; m++) {
+            if (ngx_modules[m]->type != NGX_MAIL_MODULE) {
+                continue;
+            }
 
-        if (module->protocol == NULL) {
-            continue;
-        }
+            module = ngx_modules[m]->ctx;
 
-        for (i = 0; module->protocol->port[i]; i++) {
-            if (module->protocol->port[i] == u.port) {
-                cscf->protocol = module->protocol;
-                break;
+            if (module->protocol == NULL) {
+                continue;
+            }
+
+            for (i = 0; module->protocol->port[i]; i++) {
+                if (module->protocol->port[i] == u.port) {
+                    cscf->protocol = module->protocol;
+                    break;
+                }
             }
         }
     }
@@ -413,7 +427,7 @@ ngx_mail_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
                     ls->ipv6only = 1;
 
                 } else if (ngx_strcmp(&value[i].data[10], "ff") == 0) {
-                    ls->ipv6only = 2;
+                    ls->ipv6only = 0;
 
                 } else {
                     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
